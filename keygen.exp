@@ -1,0 +1,71 @@
+#!/usr/bin/expect -f
+
+spawn solana-keygen new --no-outfile --word-count 24
+
+expect "BIP39 Passphrase (empty for none):"
+send "\r"
+
+expect -re "Save this seed phrase and your BIP39 passphrase to recover your new keypair:\r\n(.*?)\r\n" {
+  set prefix [lrange $expect_out(1,string) 0 end-3]
+}
+
+set wordlist [open "wordlist" r]
+
+set words {}
+while {[gets $wordlist word] != -1} {
+  lappend words $word
+}
+
+close $wordlist
+
+# loop 2 times
+for {set i 0} {$i < 2} {incr i} {
+  puts "Enter dice rolls (<1d8> <1d8> <1d8> <1d4>):"
+  set dice [split [gets stdin] " "]
+
+  if {[llength $dice] != 4} {
+    puts "Invalid dice rolls"
+    exit 1
+  }
+
+  foreach roll $dice {
+    if {![string is integer -strict $roll] || $roll < 1 || $roll > 8} {
+      puts "Invalid dice rolls"
+      exit 1
+    }
+  }
+
+  if {[lindex $dice 3] < 1 || [lindex $dice 3] > 4} {
+    puts "Invalid dice rolls"
+    exit 1
+  }
+
+  set wordIndex [expr {[lindex $dice 0] - 1 + ([lindex $dice 1] - 1) * 8 + ([lindex $dice 2] - 1) * 64 + ([lindex $dice 3] - 1) * 512}]
+
+  set prefix "$prefix [lindex $words $wordIndex]"
+}
+
+foreach word $words {
+  set seed "$prefix $word"
+
+  spawn solana-keygen recover -o "$word.json" "prompt://"
+
+  expect "seed phrase:"
+  send "$seed\r"
+
+  expect {
+    "Otherwise, press ENTER to continue:" {
+      send "\r"
+
+      expect {
+          "Continue? (y/n):" {
+              send "y\r"
+          }
+      }
+    }
+  }
+
+  wait
+}
+
+puts "Seed phrase: $prefix + <word>"
